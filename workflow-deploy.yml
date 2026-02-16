@@ -25,32 +25,48 @@ jobs:
           command_timeout: 30m
           script: |
             set -e
-            echo "==> Deploying $APP_NAME"
+
+            echo "==> Starting deployment of $APP_NAME"
             cd ~/$APP_NAME
-            echo "==> Pulling latest code"
+
+            echo "==> Updating source code"
             git fetch origin main
             git reset --hard origin/main
-            echo "==> Writing .env"
-            echo "NODE_ENV=$NODE_ENV" > .env
-            echo "PORT=$APP_PORT" >> .env
-            echo "$ENV_FILE" >> .env
+
+            echo "==> Creating .env file"
+            cat <<EOF > .env
+            NODE_ENV=$NODE_ENV
+            PORT=$APP_PORT
+            $ENV_FILE
+            EOF
+
             echo "==> Configuring Caddy"
-            echo "$DOMAIN {" > /etc/caddy/sites/$APP_NAME
-            echo "    reverse_proxy localhost:$APP_PORT" >> /etc/caddy/sites/$APP_NAME
-            echo "}" >> /etc/caddy/sites/$APP_NAME
+            cat <<EOF > /etc/caddy/sites/$APP_NAME
+            $DOMAIN {
+                reverse_proxy localhost:$APP_PORT
+            }
+            EOF
+
             caddy validate --config /etc/caddy/Caddyfile 2>&1 || { echo "ERROR: Invalid Caddy config"; exit 1; }
             BLOCKED=$(ss -tlnp | grep ":443" | grep -v caddy || true)
             if [ -n "$BLOCKED" ]; then echo "ERROR: Port 443 is occupied: $BLOCKED"; exit 1; fi
             systemctl reload caddy
+
             echo "==> Installing dependencies"
             corepack enable 2>/dev/null || true
             pnpm install --frozen-lockfile
-            echo "==> Building"
+
+            echo "==> Building app"
             pnpm build
-            echo "==> Running migrations"
+
+            echo "==> Running database migrations"
             pnpm db:migrate
-            echo "==> Restarting app"
+
+            echo "==> Restarting PM2 process"
             pm2 delete $APP_NAME || true
+            
             pm2 start build/index.js --name $APP_NAME --node-args="--env-file=.env"
+            
             pm2 save
-            echo "==> Deploy complete!"
+
+            echo "==> SUCCESS: $APP_NAME is deployed on https://$DOMAIN"
