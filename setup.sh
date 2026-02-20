@@ -18,7 +18,7 @@ set -e
 #   --db-password   (required) PostgreSQL password
 #   --github-repo   (required) GitHub repo (user/repo)
 #   --github-token  (required) GitHub personal access token
-#   --node-version  Node.js version: 20, 22 or 24 (default: 22)
+#   --node-version  Node.js version: 20, 22 or 24 (default: 24)
 # ============================================================
 
 # Suppress interactive prompts and kernel restart warnings
@@ -28,7 +28,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Defaults
 DB_PASS=""
-NODE_VERSION="22"
+NODE_VERSION="24"
 REPO=""
 GH_TOKEN=""
 
@@ -90,11 +90,11 @@ fi
 
 corepack enable 2>/dev/null || true
 
-# --- Install PostgreSQL 17 (skip if already installed) ---
+# --- Install PostgreSQL 18 (skip if already installed) ---
 if command -v psql &>/dev/null; then
   echo "==> PostgreSQL already installed"
 else
-  echo "==> Installing PostgreSQL 17..."
+  echo "==> Installing PostgreSQL 18..."
   curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     | gpg --dearmor --yes -o /usr/share/keyrings/postgresql-archive-keyring.gpg 2>/dev/null
 
@@ -102,7 +102,7 @@ else
     | tee /etc/apt/sources.list.d/pgdg.list > /dev/null
 
   apt-get update -y
-  apt-get install -y postgresql-17 postgresql-contrib-17
+  apt-get install -y postgresql-18 postgresql-contrib-18
 fi
 
 echo "==> Creating database and user..."
