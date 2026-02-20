@@ -86,26 +86,6 @@ Name: `production` → Configure environment
 
 All secrets and variables below are created inside this environment.
 
-### Generate SSH key on the server
-
-SSH into your server and run:
-
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/deploy_key -C "github-actions-deploy" -N ""
-```
-
-```bash
-cat ~/.ssh/deploy_key.pub >> ~/.ssh/authorized_keys
-```
-
-Then copy the private key:
-
-```bash
-cat ~/.ssh/deploy_key
-```
-
-Copy the entire output including `-----BEGIN OPENSSH PRIVATE KEY-----` and `-----END OPENSSH PRIVATE KEY-----` lines. You'll paste this as `VPS_SSH_KEY` secret below.
-
 ### Secrets (encrypted, hidden in logs)
 
 Inside the `production` environment → Add secret:

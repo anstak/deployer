@@ -153,6 +153,18 @@ fi
 # --- PM2 autostart ---
 pm2 startup systemd -u root --hp /root 2>/dev/null || true
 
+# --- Generate SSH deploy key for GitHub Actions ---
+DEPLOY_KEY_PATH="/root/.ssh/deploy_key"
+if [ -f "$DEPLOY_KEY_PATH" ]; then
+  echo "==> Deploy key already exists"
+else
+  echo "==> Generating SSH deploy key..."
+  ssh-keygen -t ed25519 -f "$DEPLOY_KEY_PATH" -C "github-actions-deploy" -N ""
+  cat "${DEPLOY_KEY_PATH}.pub" >> /root/.ssh/authorized_keys
+fi
+VPS_SSH_KEY=$(cat "$DEPLOY_KEY_PATH")
+VPS_HOST=$(curl -s ifconfig.me)
+
 # --- Cron: daily DB backup, keep 7 days ---
 mkdir -p /root/backups
 CRON_JOB="0 3 * * * PGPASSWORD='$DB_PASS' pg_dump -U '$DB_USER' '$DB_NAME' | gzip > /root/backups/${APP_NAME}_\$(date +\%Y\%m\%d).sql.gz && find /root/backups -name '${APP_NAME}_*' -mtime +7 -delete"
@@ -170,8 +182,14 @@ echo "  App folder:   /root/$APP_NAME"
 echo "  DB user:      $DB_USER"
 echo "  DB name:      $DB_NAME"
 echo ""
-echo "  Add this to your GitHub Secrets (ENV_FILE):"
+echo "  Add these to your GitHub Secrets:"
 echo ""
+echo "  VPS_SSH_KEY="
+echo "$VPS_SSH_KEY"
+echo ""
+echo "  VPS_HOST=$VPS_HOST"
+echo ""
+echo "  ENV_FILE:"
 echo "  DATABASE_URL=$DATABASE_URL"
 echo ""
 echo "  Now configure GitHub Variables and Secrets,"
