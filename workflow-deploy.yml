@@ -12,29 +12,37 @@ jobs:
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1
         env:
-          APP_NAME: ${{ github.event.repository.name }}
+          APP_NAME: ${{ vars.APP_NAME || github.event.repository.name }}
           DOMAIN: ${{ vars.DOMAIN }}
           APP_PORT: ${{ vars.APP_PORT || '3000' }}
           NODE_ENV: ${{ vars.NODE_ENV || 'production' }}
+          # Only needed when the app is not the whole repository
+          # (see README: several apps from one repository).
+          APP_DIR: ${{ vars.APP_DIR || '.' }}
+          BUILD_COMMAND: ${{ vars.BUILD_COMMAND || 'pnpm build' }}
+          MIGRATE_COMMAND: ${{ vars.MIGRATE_COMMAND || 'pnpm db:migrate' }}
+          START_SCRIPT: ${{ vars.START_SCRIPT || 'build/index.js' }}
           ENV_FILE: ${{ secrets.ENV_FILE }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: APP_NAME,DOMAIN,APP_PORT,NODE_ENV,ENV_FILE
+          envs: APP_NAME,DOMAIN,APP_PORT,NODE_ENV,APP_DIR,BUILD_COMMAND,MIGRATE_COMMAND,START_SCRIPT,ENV_FILE
           command_timeout: 30m
           script: |
             set -e
 
             echo "==> Starting deployment of $APP_NAME"
             cd ~/$APP_NAME
+            APP_PATH="$HOME/$APP_NAME/$APP_DIR"
+            if [ ! -d "$APP_PATH" ]; then echo "ERROR: APP_DIR '$APP_DIR' not found in the repository"; exit 1; fi
 
             echo "==> Updating source code"
             git fetch origin main
             git reset --hard origin/main
 
             echo "==> Creating .env file"
-            cat <<EOF > .env
+            cat <<EOF > "$APP_PATH/.env"
             NODE_ENV=$NODE_ENV
             PORT=$APP_PORT
             $ENV_FILE
@@ -56,17 +64,19 @@ jobs:
             corepack enable 2>/dev/null || true
             pnpm install --frozen-lockfile
 
+            cd "$APP_PATH"
+
             echo "==> Building app"
-            pnpm build
+            bash -c "$BUILD_COMMAND"
 
             echo "==> Running database migrations"
-            pnpm db:migrate
+            bash -c "$MIGRATE_COMMAND"
 
             echo "==> Restarting PM2 process"
             pm2 delete $APP_NAME || true
-            
-            pm2 start build/index.js --name $APP_NAME --node-args="--env-file=.env"
-            
+
+            pm2 start "$START_SCRIPT" --name $APP_NAME --cwd "$APP_PATH" --node-args="--env-file=$APP_PATH/.env"
+
             pm2 save
 
             echo "==> SUCCESS: $APP_NAME is deployed on https://$DOMAIN"

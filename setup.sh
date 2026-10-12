@@ -5,8 +5,8 @@ set -e
 # VPS Setup Script: Node.js + PM2 + PostgreSQL + Caddy
 #
 # Installs all dependencies and configures the database.
-# App name, DB user, and DB name are derived from the repo name.
-# App deployment is handled by GitHub Actions.
+# App name, DB user, and DB name are derived from the repo name
+# (or from --app-name). App deployment is handled by GitHub Actions.
 #
 # Usage:
 #   bash setup.sh \
@@ -18,6 +18,9 @@ set -e
 #   --db-password   (required) PostgreSQL password
 #   --github-repo   (required) GitHub repo (user/repo)
 #   --github-token  (required) GitHub personal access token
+#   --app-name      App name (default: repo name). Set it to deploy several
+#                   apps from one repository: each gets its own folder,
+#                   database, PM2 process and Caddy site.
 #   --node-version  Node.js version: 20, 22 or 24 (default: 24)
 # ============================================================
 
@@ -31,6 +34,7 @@ DB_PASS=""
 NODE_VERSION="24"
 REPO=""
 GH_TOKEN=""
+APP_NAME=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -39,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --node-version) NODE_VERSION="$2"; shift 2;;
     --github-repo) REPO="$2"; shift 2;;
     --github-token) GH_TOKEN="$2"; shift 2;;
+    --app-name) APP_NAME="$2"; shift 2;;
     *) echo "Unknown option: $1"; exit 1;;
   esac
 done
@@ -49,6 +54,7 @@ ERRORS=()
 [[ -z "$REPO" ]] && ERRORS+=("--github-repo is required")
 [[ -z "$GH_TOKEN" ]] && ERRORS+=("--github-token is required")
 [[ ! "$NODE_VERSION" =~ ^(20|22|24)$ ]] && ERRORS+=("--node-version must be 20, 22, or 24")
+[[ -n "$APP_NAME" && ! "$APP_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] && ERRORS+=("--app-name must be lowercase letters, digits and dashes")
 
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
   echo "Error:"
@@ -56,8 +62,8 @@ if [[ ${#ERRORS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Derive names from repo
-APP_NAME=$(echo "$REPO" | cut -d'/' -f2)
+# Derive names from repo, unless the app name is given
+[[ -z "$APP_NAME" ]] && APP_NAME=$(echo "$REPO" | cut -d'/' -f2)
 DB_NAME="${APP_NAME}-db"
 DB_USER="${APP_NAME}-user"
 DATABASE_URL="postgres://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME"
@@ -169,8 +175,9 @@ VPS_HOST=$(curl -s ifconfig.me)
 mkdir -p /root/backups
 CRON_JOB="0 3 * * * PGPASSWORD='$DB_PASS' pg_dump -U '$DB_USER' '$DB_NAME' | gzip > /root/backups/${APP_NAME}_\$(date +\%Y\%m\%d).sql.gz && find /root/backups -name '${APP_NAME}_*' -mtime +7 -delete"
 
-# Add cron only if not already present
-(crontab -l 2>/dev/null | grep -v "$APP_NAME" ; echo "$CRON_JOB") | crontab -
+# Replace this app's backup job only. Matching the backup file prefix rather
+# than the bare name keeps "myapp" from removing the job of "myapp-api".
+(crontab -l 2>/dev/null | grep -vF "/root/backups/${APP_NAME}_" ; echo "$CRON_JOB") | crontab -
 
 echo ""
 echo "============================================"
@@ -191,6 +198,14 @@ echo "  VPS_HOST=$VPS_HOST"
 echo ""
 echo "  ENV_FILE:"
 echo "  DATABASE_URL=$DATABASE_URL"
+echo ""
+REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
+if [[ "$APP_NAME" != "$REPO_NAME" ]]; then
+  echo "  The app name differs from the repo name, so also add the"
+  echo "  GitHub variable APP_NAME=$APP_NAME (see README: several apps"
+  echo "  from one repository)."
+  echo ""
+fi
 echo ""
 echo "  Now configure GitHub Variables and Secrets,"
 echo "  then push to main to trigger the first deploy."
