@@ -15,6 +15,8 @@ For a repo named `simpleapp`:
 | Backup files | `/root/backups/simpleapp_YYYYMMDD.sql.gz` |
 
 Multiple apps on the same server — just run setup again with a different repo.
+Several apps from one repository (a monorepo) are supported too — see
+[Several apps from one repository](#several-apps-from-one-repository).
 
 ```
 setup.sh (once per app)  →  Installs software, creates DB, clones repo
@@ -120,6 +122,19 @@ Inside the `production` environment → Variables tab → Add variable:
 | `APP_PORT` | `3000` | `3000` |
 | `NODE_ENV` | `production` | `production` |
 
+Only needed when several apps live in one repository (see below):
+
+| Variable | Example | Default |
+|---|---|---|
+| `APP_NAME` | `myproject-api` | repo name |
+| `APP_DIR` | `api` | `.` (repository root) |
+| `BUILD_COMMAND` | `pnpm build` | `pnpm build` |
+| `MIGRATE_COMMAND` | `pnpm db:migrate` | `pnpm db:migrate` |
+| `START_SCRIPT` | `dist/server.js` | `build/index.js` |
+
+`BUILD_COMMAND`, `MIGRATE_COMMAND` and `START_SCRIPT` run in `APP_DIR`, and the
+`.env` file is written there.
+
 ## Step 6: Add the deploy workflow
 
 Copy `deploy.yml` to `.github/workflows/deploy.yml` in your repo.
@@ -132,6 +147,77 @@ git push origin main
 
 Done. First deploy configures Caddy, writes `.env`, builds the app, and starts it.
 Every subsequent push auto-deploys.
+
+---
+
+## Several apps from one repository
+
+A monorepo with, say, `web/` and `api/` deploys as two apps on the same
+server. Each app gets its own name, folder (a separate clone of the
+repository), database, PM2 process, port and Caddy site — exactly as if they
+were two repositories.
+
+### 1. Run setup once per app
+
+Same repository, a different `--app-name` and password for each:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anstak/deployer/main/setup.sh | bash -s -- \
+  --app-name "myproject-web" \
+  --db-password "web-password" \
+  --github-repo "YOUR_USER/myproject" \
+  --github-token "ghp_xxxxxxxxxxxx"
+
+curl -fsSL https://raw.githubusercontent.com/anstak/deployer/main/setup.sh | bash -s -- \
+  --app-name "myproject-api" \
+  --db-password "api-password" \
+  --github-repo "YOUR_USER/myproject" \
+  --github-token "ghp_xxxxxxxxxxxx"
+```
+
+### 2. One GitHub environment per app
+
+Create an environment per app (for example `production-web` and
+`production-api`) instead of the single `production`:
+
+| | `production-web` | `production-api` |
+|---|---|---|
+| Variable `APP_NAME` | `myproject-web` | `myproject-api` |
+| Variable `APP_DIR` | `web` | `api` |
+| Variable `DOMAIN` | `myproject.com` | `api.myproject.com` |
+| Variable `APP_PORT` | `3000` | `3001` |
+| Variable `START_SCRIPT` | — (`build/index.js`) | `dist/server.js` |
+| Secret `ENV_FILE` | web's env, with its `DATABASE_URL` | api's env, with its `DATABASE_URL` |
+
+`VPS_HOST` and `VPS_SSH_KEY` are the same for all apps — they can be added
+once as repository secrets instead of per environment.
+
+### 3. One workflow per app
+
+Copy `workflow-deploy.yml` once per app (`deploy-web.yml`, `deploy-api.yml`),
+point it at the app's environment and deploy only when that app — or code it
+shares — changes:
+
+```yaml
+name: Deploy web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'packages/**'       # shared code, if any
+      - 'pnpm-lock.yaml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production-web
+    # ...the rest as in workflow-deploy.yml
+```
+
+`pnpm install` runs at the repository root, so a pnpm workspace installs as a
+whole; the build, migrations and the app itself run in `APP_DIR`.
 
 ---
 
